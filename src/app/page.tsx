@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useUser, signOut } from "@/lib/supabase/auth";
 
 /* ------------------------------------------------------------------ */
 /*  ANIMATION HELPERS                                                  */
@@ -291,6 +292,7 @@ const companies = ["Google", "Microsoft", "Apple", "Amazon", "Meta", "Netflix"];
 
 export default function LandingPage() {
   const { t } = useLanguage();
+  const { user, loading: authLoading } = useUser();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [annual, setAnnual] = useState(false);
   const [careerTab, setCareerTab] = useState<"certificates" | "courses" | "suggestions">("certificates");
@@ -343,13 +345,47 @@ export default function LandingPage() {
             <div className="hidden md:flex items-center gap-3">
               <ThemeToggle />
               <LanguageSwitcher />
-              <Link
-                href="/builder"
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors duration-200"
-              >
-                {t("nav.getStarted")}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              {authLoading ? (
+                <div className="w-8 h-8 rounded-full bg-zinc-800 animate-pulse" />
+              ) : user ? (
+                <>
+                  <Link
+                    href="/dashboard"
+                    className="text-sm text-zinc-400 hover:text-white transition-colors"
+                  >
+                    Dashboard
+                  </Link>
+                  <button
+                    onClick={() => signOut()}
+                    className="text-sm text-zinc-500 hover:text-white transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                  <Link
+                    href="/builder"
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors duration-200"
+                  >
+                    New CV
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="text-sm text-zinc-400 hover:text-white transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors duration-200"
+                  >
+                    {t("nav.getStarted")}
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </>
+              )}
             </div>
 
             {/* Mobile menu toggle */}
@@ -385,12 +421,19 @@ export default function LandingPage() {
               <div className="pt-2 flex items-center gap-3">
                 <ThemeToggle />
                 <LanguageSwitcher />
-                <Link
-                  href="/builder"
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
-                >
-                  {t("nav.getStarted")}
-                </Link>
+                {user ? (
+                  <>
+                    <Link href="/dashboard" className="text-sm text-zinc-400 hover:text-white">Dashboard</Link>
+                    <button onClick={() => signOut()} className="text-sm text-zinc-500 hover:text-white">Sign Out</button>
+                  </>
+                ) : (
+                  <>
+                    <Link href="/login" className="text-sm text-zinc-400 hover:text-white">Sign In</Link>
+                    <Link href="/signup" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white">
+                      {t("nav.getStarted")}
+                    </Link>
+                  </>
+                )}
               </div>
             </motion.div>
           )}
