@@ -301,6 +301,7 @@ export default function LandingPage() {
   const navLinks = [
     { label: t("nav.features"), href: "#features" },
     { label: t("nav.templates"), href: "#templates" },
+    { label: "ATS Checker", href: "/ats-checker" },
     { label: t("career.title"), href: "#career" },
     { label: t("nav.reviews"), href: "#reviews" },
     { label: t("nav.pricing"), href: "#pricing" },

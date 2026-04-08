@@ -28,6 +28,7 @@ import {
   MessageSquare,
   LogOut,
   Loader2,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -233,6 +234,7 @@ export default function DashboardPage() {
     { label: "Dashboard", icon: LayoutDashboard, tab: "dashboard" },
     { label: "My CVs", icon: FileText, tab: "cvs" },
     { label: "Templates", icon: Layout, href: "/templates" },
+    { label: "ATS Checker", icon: Shield, href: "/ats-checker" },
     { label: "AI Assistant", icon: Sparkles, href: "/builder" },
     { label: "Cover Letters", icon: MessageSquare, tab: "cover-letters" },
     { label: "Settings", icon: Settings, tab: "settings" },
