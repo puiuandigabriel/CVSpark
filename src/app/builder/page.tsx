@@ -948,13 +948,16 @@ function BuilderInner() {
     }, 2000);
   }, [cvData, loaded, triggerAutoSave, user, cvId]);
 
-  const simulateAi = useCallback(
-    (key: string, cb: () => void, delay = 1500) => {
-      setAiLoading((p) => ({ ...p, [key]: true }));
-      setTimeout(() => {
-        cb();
-        setAiLoading((p) => ({ ...p, [key]: false }));
-      }, delay);
+  const callAi = useCallback(
+    async (action: string, data: Record<string, unknown>) => {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, data }),
+      });
+      if (!res.ok) throw new Error("AI request failed");
+      const json = await res.json();
+      return json.result as string;
     },
     []
   );
@@ -971,34 +974,95 @@ function BuilderInner() {
   }, [chatMessages, chatLoading]);
 
   const sendChat = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!text.trim()) return;
       const userMsg: ChatMessage = { id: uid(), role: "user", text };
       setChatMessages((m) => [...m, userMsg]);
       setChatInput("");
       setChatLoading(true);
-      setTimeout(() => {
-        const responses: Record<string, string> = {
-          "Improve Summary":
-            "I've enhanced your professional summary to be more impactful and keyword-rich. It now highlights your core strengths and quantifiable achievements more effectively.",
-          "Add Keywords":
-            "Based on your target role, I suggest weaving in: microservices, CI/CD, cloud-native, stakeholder management, and data-driven decision making.",
-          "Fix Grammar":
-            "I've reviewed every section and corrected tense consistency, punctuation, and phrasing. All bullet points now start with strong action verbs.",
-          "Make Concise":
-            "I've trimmed redundant phrases and tightened each bullet point to be punchier while retaining impact. Your CV is now 20% shorter.",
+
+      try {
+        // Handle quick actions that modify the CV
+        const actionMap: Record<string, string> = {
+          "Improve Summary": "improve-summary",
+          "Add Keywords": "add-keywords",
+          "Fix Grammar": "fix-grammar",
+          "Make Concise": "make-concise",
         };
-        const reply =
-          responses[text] ||
-          "Great question! I've analyzed your CV and applied targeted improvements based on your request. Check the relevant sections for the updates.";
+
+        const aiAction = actionMap[text];
+        if (aiAction) {
+          const result = await callAi(aiAction, {
+            summary,
+            jobTitle,
+            skills,
+            experiences: experiences.map((e) => ({
+              title: e.title,
+              company: e.company,
+              bullets: e.bullets,
+            })),
+          });
+
+          if (aiAction === "improve-summary") {
+            setSummary(result);
+            setChatMessages((m) => [
+              ...m,
+              { id: uid(), role: "assistant", text: "I've enhanced your professional summary. Check it out above!" },
+            ]);
+          } else if (aiAction === "add-keywords") {
+            const suggested = result.split(",").map((s: string) => s.trim()).filter(Boolean);
+            setSkills((p) => [...p, ...suggested.filter((s: string) => !p.includes(s))]);
+            setChatMessages((m) => [
+              ...m,
+              { id: uid(), role: "assistant", text: `I've added these keywords to your skills: ${suggested.join(", ")}` },
+            ]);
+          } else if (aiAction === "fix-grammar" || aiAction === "make-concise") {
+            try {
+              const parsed = JSON.parse(result);
+              if (parsed.summary) setSummary(parsed.summary);
+              if (parsed.experiences) {
+                setExperiences((prev) =>
+                  prev.map((exp, i) => ({
+                    ...exp,
+                    bullets: parsed.experiences[i]?.bullets || exp.bullets,
+                  }))
+                );
+              }
+            } catch {
+              // If JSON parse fails, just show the result as text
+            }
+            setChatMessages((m) => [
+              ...m,
+              { id: uid(), role: "assistant", text: aiAction === "fix-grammar" ? "I've fixed grammar and tense consistency across your CV." : "I've made your CV more concise and punchy." },
+            ]);
+          }
+        } else {
+          // Free-form chat
+          const result = await callAi("chat", {
+            message: text,
+            fullName,
+            jobTitle,
+            skills,
+            experiences: experiences.map((e) => ({
+              title: e.title,
+              company: e.company,
+              bullets: e.bullets,
+            })),
+          });
+          setChatMessages((m) => [
+            ...m,
+            { id: uid(), role: "assistant", text: result },
+          ]);
+        }
+      } catch {
         setChatMessages((m) => [
           ...m,
-          { id: uid(), role: "assistant", text: reply },
+          { id: uid(), role: "assistant", text: "Sorry, I couldn't process that request. Please try again." },
         ]);
-        setChatLoading(false);
-      }, 1800);
+      }
+      setChatLoading(false);
     },
-    []
+    [callAi, summary, jobTitle, skills, experiences, fullName]
   );
 
   /* ---- PDF export ---- */
@@ -1400,13 +1464,14 @@ function BuilderInner() {
                 <div className="flex items-center justify-between mb-1.5">
                   <label className={labelClass}>Professional Summary</label>
                   <button
-                    onClick={() =>
-                      simulateAi("summary", () =>
-                        setSummary(
-                          "Innovative and detail-oriented software engineer with over 5 years of experience in full-stack web development. Adept at translating complex business requirements into elegant, scalable solutions. Proven track record of leading cross-functional teams and delivering high-impact projects on time."
-                        )
-                      )
-                    }
+                    onClick={async () => {
+                      setAiLoading((p) => ({ ...p, summary: true }));
+                      try {
+                        const result = await callAi("improve-summary", { summary, jobTitle });
+                        setSummary(result);
+                      } catch { /* ignore */ }
+                      setAiLoading((p) => ({ ...p, summary: false }));
+                    }}
                     className={cn(btnSmall, "text-indigo-400 hover:bg-indigo-500/10")}
                   >
                     {aiLoading["summary"] ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
@@ -1478,24 +1543,24 @@ function BuilderInner() {
                     <div className="flex items-center justify-between mb-1.5">
                       <label className={labelClass}>Description Bullets</label>
                       <button
-                        onClick={() =>
-                          simulateAi(`exp-${exp.id}`, () =>
-                            setExperiences((p) =>
-                              p.map((x) =>
-                                x.id === exp.id
-                                  ? {
-                                      ...x,
-                                      bullets: [
-                                        "Spearheaded the development of a microservices architecture that reduced deployment time by 60%",
-                                        "Collaborated with product managers and designers to deliver features that increased user retention by 25%",
-                                        "Implemented comprehensive testing strategies achieving 95% code coverage",
-                                      ],
-                                    }
-                                  : x
-                              )
-                            )
-                          )
-                        }
+                        onClick={async () => {
+                          const key = `exp-${exp.id}`;
+                          setAiLoading((p) => ({ ...p, [key]: true }));
+                          try {
+                            const result = await callAi("improve-bullets", {
+                              title: exp.title,
+                              company: exp.company,
+                              bullets: exp.bullets,
+                            });
+                            const newBullets = result.split("\n").map((b: string) => b.trim()).filter(Boolean);
+                            if (newBullets.length > 0) {
+                              setExperiences((p) =>
+                                p.map((x) => x.id === exp.id ? { ...x, bullets: newBullets } : x)
+                              );
+                            }
+                          } catch { /* ignore */ }
+                          setAiLoading((p) => ({ ...p, [key]: false }));
+                        }}
                         className={cn(btnSmall, "text-indigo-400 hover:bg-indigo-500/10")}
                       >
                         {aiLoading[`exp-${exp.id}`] ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
@@ -1618,7 +1683,15 @@ function BuilderInner() {
                 </button>
               </div>
               <button
-                onClick={() => simulateAi("skills", () => setSkills((p) => [...p, ...["Docker", "AWS", "GraphQL", "Git", "Agile"].filter((s) => !p.includes(s))]))}
+                onClick={async () => {
+                  setAiLoading((p) => ({ ...p, skills: true }));
+                  try {
+                    const result = await callAi("add-keywords", { jobTitle, skills, summary });
+                    const suggested = result.split(",").map((s: string) => s.trim()).filter(Boolean);
+                    setSkills((p) => [...p, ...suggested.filter((s: string) => !p.includes(s))]);
+                  } catch { /* ignore */ }
+                  setAiLoading((p) => ({ ...p, skills: false }));
+                }}
                 className={cn(btnSmall, "text-indigo-400 hover:bg-indigo-500/10")}>
                 {aiLoading["skills"] ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
                 AI Suggest Skills

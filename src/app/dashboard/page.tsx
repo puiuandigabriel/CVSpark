@@ -236,16 +236,33 @@ function CoverLettersTab() {
     setCreating(true);
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!company.trim() || !role.trim()) return;
     setGenerating(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate-cover-letter",
+          data: { company, role },
+        }),
+      });
+      if (res.ok) {
+        const { result } = await res.json();
+        setContent(result);
+      } else {
+        setContent(
+          `Dear Hiring Manager,\n\nI am writing to express my strong interest in the ${role} position at ${company}. With my experience and skills, I am confident I would be a valuable addition to your team.\n\nI would welcome the opportunity to discuss how my background can benefit your team. Thank you for considering my application.\n\nSincerely,\n[Your Name]`
+        );
+      }
+    } catch {
       setContent(
-        `Dear Hiring Manager,\n\nI am writing to express my strong interest in the ${role} position at ${company}. With my experience and skills, I am confident I would be a valuable addition to your team.\n\nThroughout my career, I have developed expertise in key areas that directly align with the requirements of this role. I am particularly drawn to ${company}'s mission and values, and I am excited about the opportunity to contribute to your continued success.\n\nI bring a proven track record of delivering results, strong communication skills, and a collaborative approach to problem-solving. I am eager to bring my unique perspective and dedication to ${company}.\n\nI would welcome the opportunity to discuss how my background and enthusiasm can benefit your team. Thank you for considering my application.\n\nSincerely,\n[Your Name]`
+        `Dear Hiring Manager,\n\nI am writing to express my strong interest in the ${role} position at ${company}.\n\nSincerely,\n[Your Name]`
       );
-      if (!title.trim()) setTitle(`Cover Letter - ${company}`);
-      setGenerating(false);
-    }, 1500);
+    }
+    if (!title.trim()) setTitle(`Cover Letter - ${company}`);
+    setGenerating(false);
   };
 
   const inputClass =
