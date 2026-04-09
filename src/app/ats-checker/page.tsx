@@ -34,6 +34,30 @@ import {
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
+/*  PDF Text Extraction                                                */
+/* ------------------------------------------------------------------ */
+
+async function extractTextFromPdf(file: File): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages: string[] = [];
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item) => ("str" in item ? (item as { str: string }).str : ""))
+      .join(" ");
+    pages.push(pageText);
+  }
+
+  return pages.join("\n");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -382,6 +406,259 @@ function analyzeCV(cv: CvData): AtsCheck[] {
   return checks;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Text-based ATS Analysis (for uploaded PDFs)                        */
+/* ------------------------------------------------------------------ */
+
+function analyzeText(text: string): AtsCheck[] {
+  const checks: AtsCheck[] = [];
+  const lower = text.toLowerCase();
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = text.split(/\n/).filter(Boolean);
+
+  // Email
+  const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
+  checks.push({
+    id: "contact-email",
+    label: "Email Address Present",
+    description: "ATS systems need your email to contact you",
+    category: "content",
+    weight: 3,
+    status: emailMatch ? "pass" : "fail",
+    details: emailMatch ? `Found: ${emailMatch[0]}` : "No email address detected",
+    fixTip: "Add a professional email address",
+    isPremiumFix: false,
+  });
+
+  // Phone
+  const phoneMatch = text.match(/(\+?\d[\d\s\-().]{7,}\d)/);
+  checks.push({
+    id: "contact-phone",
+    label: "Phone Number Present",
+    description: "Recruiters need a phone number to reach you",
+    category: "content",
+    weight: 2,
+    status: phoneMatch ? "pass" : "fail",
+    details: phoneMatch ? "Phone number detected" : "No phone number found",
+    fixTip: "Add your phone number",
+    isPremiumFix: false,
+  });
+
+  // LinkedIn
+  const hasLinkedin = /linkedin\.com/i.test(text);
+  checks.push({
+    id: "contact-linkedin",
+    label: "LinkedIn Profile",
+    description: "LinkedIn URLs add credibility",
+    category: "content",
+    weight: 1,
+    status: hasLinkedin ? "pass" : "warn",
+    details: hasLinkedin ? "LinkedIn URL found" : "No LinkedIn URL detected",
+    fixTip: "Add your LinkedIn profile URL",
+    isPremiumFix: false,
+  });
+
+  // Summary / Profile / Objective section
+  const hasSummary = /(summary|profile|objective|about\s*me)/i.test(text);
+  checks.push({
+    id: "summary-present",
+    label: "Professional Summary",
+    description: "A summary helps ATS categorize your profile",
+    category: "content",
+    weight: 3,
+    status: hasSummary ? "pass" : "fail",
+    details: hasSummary ? "Summary/Profile section detected" : "No summary section found",
+    fixTip: "Add a Professional Summary section",
+    isPremiumFix: false,
+  });
+
+  // Work Experience section
+  const hasExperience = /(experience|employment|work\s*history|professional\s*experience)/i.test(text);
+  checks.push({
+    id: "experience-present",
+    label: "Work Experience Listed",
+    description: "Employment history is critical for ATS scoring",
+    category: "content",
+    weight: 3,
+    status: hasExperience ? "pass" : "fail",
+    details: hasExperience ? "Experience section detected" : "No experience section found",
+    fixTip: "Add a Work Experience section with your employment history",
+    isPremiumFix: false,
+  });
+
+  // Dates
+  const datePatterns = text.match(/\b(19|20)\d{2}\b/g) || [];
+  const monthPatterns = text.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s*(19|20)\d{2}/gi) || [];
+  checks.push({
+    id: "experience-dates",
+    label: "Employment Dates Complete",
+    description: "ATS systems use dates to calculate experience",
+    category: "format",
+    weight: 3,
+    status: monthPatterns.length >= 2 ? "pass" : datePatterns.length >= 2 ? "warn" : "fail",
+    details: `Found ${datePatterns.length} year references, ${monthPatterns.length} full dates`,
+    fixTip: "Use format like 'Jan 2020 - Present' for each position",
+    isPremiumFix: false,
+  });
+
+  // Education section
+  const hasEducation = /(education|academic|university|college|degree|bachelor|master|phd|diploma)/i.test(text);
+  checks.push({
+    id: "education-present",
+    label: "Education Listed",
+    description: "Education section is required by most ATS systems",
+    category: "content",
+    weight: 2,
+    status: hasEducation ? "pass" : "fail",
+    details: hasEducation ? "Education section detected" : "No education section found",
+    fixTip: "Add your education history",
+    isPremiumFix: false,
+  });
+
+  // Skills section
+  const hasSkills = /(skills|technical\s*skills|core\s*competencies|expertise|proficiencies)/i.test(text);
+  checks.push({
+    id: "skills-present",
+    label: "Skills Section",
+    description: "ATS systems match your skills against job requirements",
+    category: "content",
+    weight: 3,
+    status: hasSkills ? "pass" : "fail",
+    details: hasSkills ? "Skills section detected" : "No skills section found",
+    fixTip: "Add a Skills section listing your key competencies",
+    isPremiumFix: false,
+  });
+
+  // Action verbs
+  const actionVerbs = [
+    "led", "managed", "developed", "created", "implemented", "designed", "built",
+    "improved", "increased", "decreased", "reduced", "achieved", "delivered",
+    "launched", "established", "organized", "coordinated", "executed", "drove",
+    "spearheaded", "mentored", "optimized", "streamlined", "automated", "analyzed",
+    "collaborated", "negotiated", "resolved", "transformed", "initiated",
+  ];
+  const actionVerbCount = actionVerbs.filter((v) => lower.includes(v)).length;
+  checks.push({
+    id: "action-verbs",
+    label: "Strong Action Verbs",
+    description: "Bullets should use action verbs like Led, Developed, Improved",
+    category: "content",
+    weight: 2,
+    status: actionVerbCount >= 5 ? "pass" : actionVerbCount >= 2 ? "warn" : "fail",
+    details: `${actionVerbCount} different action verbs detected`,
+    fixTip: "Use strong action verbs to start your bullet points",
+    isPremiumFix: true,
+  });
+
+  // Quantifiable achievements
+  const metricsCount = (text.match(/\d+%|\$[\d,]+|\d+\+?\s*(users|clients|projects|team|people|revenue|sales|million|k\b)/gi) || []).length;
+  checks.push({
+    id: "quantifiable",
+    label: "Quantifiable Achievements",
+    description: "Numbers and metrics make your CV 40% more likely to get callbacks",
+    category: "content",
+    weight: 3,
+    status: metricsCount >= 3 ? "pass" : metricsCount >= 1 ? "warn" : "fail",
+    details: `${metricsCount} quantifiable metric(s) detected`,
+    fixTip: "Add numbers: percentages, dollar amounts, team sizes",
+    isPremiumFix: true,
+  });
+
+  // CV length
+  checks.push({
+    id: "cv-length",
+    label: "CV Length Appropriate",
+    description: "ATS prefers CVs with 400-800 words",
+    category: "format",
+    weight: 2,
+    status: words.length >= 300 && words.length <= 1000 ? "pass" : words.length >= 150 ? "warn" : "fail",
+    details: `Approximately ${words.length} words`,
+    fixTip: words.length < 300 ? "Your CV seems too short — add more detail" : "Consider condensing to 1-2 pages",
+    isPremiumFix: true,
+  });
+
+  // Standard section headings
+  const standardHeadings = ["experience", "education", "skills", "summary", "certifications", "languages", "projects", "awards"];
+  const foundHeadings = standardHeadings.filter((h) => lower.includes(h));
+  checks.push({
+    id: "standard-headings",
+    label: "Standard Section Headings",
+    description: "ATS looks for standard headings to parse sections",
+    category: "format",
+    weight: 3,
+    status: foundHeadings.length >= 4 ? "pass" : foundHeadings.length >= 2 ? "warn" : "fail",
+    details: `Found ${foundHeadings.length} standard headings: ${foundHeadings.join(", ") || "none"}`,
+    fixTip: "Use standard headings: Experience, Education, Skills, Summary",
+    isPremiumFix: false,
+  });
+
+  // Certifications bonus
+  const hasCerts = /(certification|certified|certificate|license|credential)/i.test(text);
+  checks.push({
+    id: "certifications",
+    label: "Certifications & Credentials",
+    description: "Certifications boost ATS scores for specialized roles",
+    category: "keywords",
+    weight: 1,
+    status: hasCerts ? "pass" : "warn",
+    details: hasCerts ? "Certifications detected" : "No certifications found",
+    fixTip: "Add relevant industry certifications",
+    isPremiumFix: false,
+  });
+
+  // Keyword density
+  const techKeywords = [
+    "javascript", "python", "react", "node", "sql", "aws", "docker", "git",
+    "agile", "scrum", "api", "html", "css", "typescript", "java", "c#",
+    "machine learning", "data", "cloud", "devops", "ci/cd", "testing",
+    "leadership", "management", "communication", "problem-solving",
+    "collaboration", "analytical", "strategic", "budget", "stakeholder",
+  ];
+  const keywordsFound = techKeywords.filter((k) => lower.includes(k));
+  checks.push({
+    id: "keyword-density",
+    label: "Industry Keywords",
+    description: "ATS matches keywords from job descriptions",
+    category: "keywords",
+    weight: 2,
+    status: keywordsFound.length >= 8 ? "pass" : keywordsFound.length >= 4 ? "warn" : "fail",
+    details: `${keywordsFound.length} industry keywords detected`,
+    fixTip: "Include relevant keywords from your target job descriptions",
+    isPremiumFix: true,
+  });
+
+  // Bullet points usage
+  const bulletIndicators = (text.match(/[•·\-\*▪►]\s/g) || []).length;
+  checks.push({
+    id: "bullet-points",
+    label: "Bullet Points Used",
+    description: "Bullet points help ATS parse individual achievements",
+    category: "format",
+    weight: 2,
+    status: bulletIndicators >= 5 ? "pass" : bulletIndicators >= 2 ? "warn" : "fail",
+    details: `${bulletIndicators} bullet point indicator(s) detected`,
+    fixTip: "Use bullet points to list achievements under each role",
+    isPremiumFix: false,
+  });
+
+  // No images/tables warning (heuristic — short lines might indicate tables)
+  const veryShortLines = lines.filter((l) => l.trim().length > 0 && l.trim().length < 5).length;
+  const tableRisk = veryShortLines > lines.length * 0.3;
+  checks.push({
+    id: "no-tables",
+    label: "No Complex Tables/Graphics",
+    description: "ATS can't read tables, images, or complex formatting",
+    category: "format",
+    weight: 3,
+    status: tableRisk ? "warn" : "pass",
+    details: tableRisk ? "Possible table/column formatting detected" : "No table formatting issues detected",
+    fixTip: "Avoid tables, text boxes, and multi-column layouts",
+    isPremiumFix: false,
+  });
+
+  return checks;
+}
+
 function computeScore(checks: AtsCheck[]): number {
   let totalWeight = 0;
   let earnedWeight = 0;
@@ -465,12 +742,20 @@ const categoryLabels: Record<string, string> = {
 
 const STORAGE_KEY = "cvspark-cv-data";
 
+type AnalysisSource = "builder" | "upload";
+
 export default function AtsCheckerPage() {
   const [cvData, setCvData] = useState<CvData | null>(null);
+  const [uploadedChecks, setUploadedChecks] = useState<AtsCheck[] | null>(null);
+  const [source, setSource] = useState<AnalysisSource | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [parsing, setParsing] = useState(false);
   const [expandedCheck, setExpandedCheck] = useState<string | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
+  // Try to load from localStorage on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -483,7 +768,56 @@ export default function AtsCheckerPage() {
     setLoading(false);
   }, []);
 
-  const checks = useMemo(() => (cvData ? analyzeCV(cvData) : []), [cvData]);
+  // Handle PDF upload
+  const handleFileUpload = async (file: File) => {
+    if (!file || !file.name.toLowerCase().endsWith(".pdf")) {
+      alert("Please upload a PDF file");
+      return;
+    }
+    setParsing(true);
+    try {
+      const text = await extractTextFromPdf(file);
+      if (text.trim().length < 20) {
+        alert("Could not extract text from this PDF. The file may be image-based or empty.");
+        setParsing(false);
+        return;
+      }
+      const textChecks = analyzeText(text);
+      setUploadedChecks(textChecks);
+      setUploadedFileName(file.name);
+      setSource("upload");
+    } catch (err) {
+      console.error("PDF parsing error:", err);
+      alert("Failed to parse the PDF. Please try a different file.");
+    }
+    setParsing(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileUpload(file);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileUpload(file);
+  };
+
+  // Use builder data
+  const useBuilderData = () => {
+    setSource("builder");
+    setUploadedChecks(null);
+  };
+
+  // Determine checks to display
+  const checks = useMemo(() => {
+    if (source === "upload" && uploadedChecks) return uploadedChecks;
+    if (source === "builder" && cvData) return analyzeCV(cvData);
+    return [];
+  }, [source, uploadedChecks, cvData]);
+
   const score = useMemo(() => computeScore(checks), [checks]);
 
   const passCount = checks.filter((c) => c.status === "pass").length;
@@ -492,6 +826,7 @@ export default function AtsCheckerPage() {
   const premiumFixCount = checks.filter((c) => c.isPremiumFix && c.status !== "pass").length;
 
   const categories = ["content", "format", "keywords"] as const;
+  const hasResults = source && checks.length > 0;
 
   if (loading) {
     return (
@@ -501,23 +836,132 @@ export default function AtsCheckerPage() {
     );
   }
 
-  if (!cvData) {
+  // Landing state — choose source
+  if (!hasResults) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-        <div className="text-center max-w-md">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/60 ring-1 ring-zinc-700/50 mx-auto mb-6">
-            <Shield className="h-8 w-8 text-zinc-500" />
+      <div className="min-h-screen bg-zinc-950 text-white">
+        {/* Header */}
+        <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-xl">
+          <div className="mx-auto max-w-5xl flex items-center justify-between px-4 sm:px-6 h-16">
+            <div className="flex items-center gap-4">
+              <Link href="/" className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-colors">
+                <ArrowLeft size={18} />
+              </Link>
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
+                  <Shield size={16} className="text-white" />
+                </div>
+                <h1 className="text-sm font-semibold text-white">ATS Compatibility Checker</h1>
+              </div>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-white mb-3">No CV Found</h1>
-          <p className="text-zinc-400 mb-8">Create or edit a CV first, then come back to check its ATS compatibility.</p>
-          <Link
-            href="/builder"
-            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
-          >
-            <FileText className="h-4 w-4" />
-            Go to CV Builder
-          </Link>
-        </div>
+        </header>
+
+        <main className="mx-auto max-w-3xl px-4 sm:px-6 py-16">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-12">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-600/15 ring-1 ring-indigo-500/20 mx-auto mb-6">
+              <Shield className="h-8 w-8 text-indigo-400" />
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-3">Check Your CV&apos;s ATS Score</h1>
+            <p className="text-zinc-400 max-w-lg mx-auto">
+              Upload your existing CV or analyze the one you built with CVSpark. We&apos;ll check it against 15+ ATS criteria.
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {/* Upload PDF */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={cn(
+                  "relative rounded-2xl border-2 border-dashed bg-zinc-900/60 p-8 text-center transition-all cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/5",
+                  dragOver ? "border-indigo-500 bg-indigo-500/10" : "border-zinc-700",
+                  parsing && "pointer-events-none opacity-60"
+                )}
+              >
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleInputChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  disabled={parsing}
+                />
+                {parsing ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="h-10 w-10 text-indigo-400 animate-spin" />
+                    <p className="text-sm font-medium text-white">Analyzing your CV...</p>
+                    <p className="text-xs text-zinc-500">Extracting text and running ATS checks</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/10 ring-1 ring-indigo-500/20 mx-auto mb-4">
+                      <Upload className="h-6 w-6 text-indigo-400" />
+                    </div>
+                    <h3 className="text-base font-semibold text-white mb-1">Upload Your CV</h3>
+                    <p className="text-xs text-zinc-400 mb-4">Drag & drop a PDF or click to browse</p>
+                    <span className="inline-flex items-center gap-2 rounded-lg bg-indigo-600/15 px-4 py-2 text-xs font-semibold text-indigo-400 ring-1 ring-indigo-500/20">
+                      <Upload size={14} />
+                      Choose PDF File
+                    </span>
+                  </>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Use Builder CV */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <button
+                onClick={cvData ? useBuilderData : undefined}
+                disabled={!cvData}
+                className={cn(
+                  "w-full rounded-2xl border bg-zinc-900/60 p-8 text-center transition-all h-full",
+                  cvData
+                    ? "border-zinc-700 hover:border-emerald-500/50 hover:bg-emerald-500/5 cursor-pointer"
+                    : "border-zinc-800 opacity-50 cursor-not-allowed"
+                )}
+              >
+                <div className={cn(
+                  "flex h-14 w-14 items-center justify-center rounded-2xl ring-1 mx-auto mb-4",
+                  cvData ? "bg-emerald-500/10 ring-emerald-500/20" : "bg-zinc-800 ring-zinc-700"
+                )}>
+                  <FileText className={cn("h-6 w-6", cvData ? "text-emerald-400" : "text-zinc-600")} />
+                </div>
+                <h3 className="text-base font-semibold text-white mb-1">
+                  {cvData ? "Use CVSpark CV" : "No CVSpark CV Found"}
+                </h3>
+                <p className="text-xs text-zinc-400 mb-4">
+                  {cvData
+                    ? `Analyze "${cvData.fullName || "Your CV"}" from the builder`
+                    : "Build a CV first in our editor"}
+                </p>
+                {cvData ? (
+                  <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-600/15 px-4 py-2 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
+                    <Shield size={14} />
+                    Analyze Now
+                  </span>
+                ) : (
+                  <Link
+                    href="/builder"
+                    className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-400"
+                  >
+                    Go to Builder
+                    <ArrowRight size={12} />
+                  </Link>
+                )}
+              </button>
+            </motion.div>
+          </div>
+        </main>
       </div>
     );
   }
@@ -537,7 +981,7 @@ export default function AtsCheckerPage() {
               </div>
               <div>
                 <h1 className="text-sm font-semibold text-white">ATS Compatibility Checker</h1>
-                <p className="text-[11px] text-zinc-500">Analyzing: {cvData.fullName || "Your CV"}</p>
+                <p className="text-[11px] text-zinc-500">Analyzing: {cvData?.fullName || "Your CV"}</p>
               </div>
             </div>
           </div>

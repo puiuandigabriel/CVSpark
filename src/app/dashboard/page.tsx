@@ -143,6 +143,303 @@ function CvThumbnail({ accent }: { accent: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Cover Letters Tab
+// ---------------------------------------------------------------------------
+
+interface CoverLetter {
+  id: string;
+  title: string;
+  company: string;
+  role: string;
+  content: string;
+  createdAt: string;
+}
+
+const CL_STORAGE_KEY = "cvspark-cover-letters";
+
+function loadCoverLetters(): CoverLetter[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CL_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCoverLetters(letters: CoverLetter[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CL_STORAGE_KEY, JSON.stringify(letters));
+}
+
+function CoverLettersTab() {
+  const [letters, setLetters] = useState<CoverLetter[]>([]);
+  const [editing, setEditing] = useState<CoverLetter | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  // Form state
+  const [title, setTitle] = useState("");
+  const [company, setCompany] = useState("");
+  const [role, setRole] = useState("");
+  const [content, setContent] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    setLetters(loadCoverLetters());
+  }, []);
+
+  const resetForm = () => {
+    setTitle("");
+    setCompany("");
+    setRole("");
+    setContent("");
+    setCreating(false);
+    setEditing(null);
+  };
+
+  const handleSave = () => {
+    if (!title.trim() || !content.trim()) return;
+    let updated: CoverLetter[];
+    if (editing) {
+      updated = letters.map((l) =>
+        l.id === editing.id ? { ...l, title, company, role, content } : l
+      );
+    } else {
+      const newLetter: CoverLetter = {
+        id: Math.random().toString(36).slice(2, 10),
+        title,
+        company,
+        role,
+        content,
+        createdAt: new Date().toISOString(),
+      };
+      updated = [newLetter, ...letters];
+    }
+    setLetters(updated);
+    saveCoverLetters(updated);
+    resetForm();
+  };
+
+  const handleDelete = (id: string) => {
+    if (!confirm("Delete this cover letter?")) return;
+    const updated = letters.filter((l) => l.id !== id);
+    setLetters(updated);
+    saveCoverLetters(updated);
+  };
+
+  const handleEdit = (letter: CoverLetter) => {
+    setEditing(letter);
+    setTitle(letter.title);
+    setCompany(letter.company);
+    setRole(letter.role);
+    setContent(letter.content);
+    setCreating(true);
+  };
+
+  const handleGenerate = () => {
+    if (!company.trim() || !role.trim()) return;
+    setGenerating(true);
+    setTimeout(() => {
+      setContent(
+        `Dear Hiring Manager,\n\nI am writing to express my strong interest in the ${role} position at ${company}. With my experience and skills, I am confident I would be a valuable addition to your team.\n\nThroughout my career, I have developed expertise in key areas that directly align with the requirements of this role. I am particularly drawn to ${company}'s mission and values, and I am excited about the opportunity to contribute to your continued success.\n\nI bring a proven track record of delivering results, strong communication skills, and a collaborative approach to problem-solving. I am eager to bring my unique perspective and dedication to ${company}.\n\nI would welcome the opportunity to discuss how my background and enthusiasm can benefit your team. Thank you for considering my application.\n\nSincerely,\n[Your Name]`
+      );
+      if (!title.trim()) setTitle(`Cover Letter - ${company}`);
+      setGenerating(false);
+    }, 1500);
+  };
+
+  const inputClass =
+    "w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-indigo-500 focus:outline-none transition-colors";
+
+  if (creating) {
+    return (
+      <motion.div variants={fadeUp} className="space-y-6 max-w-3xl">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-white">
+            {editing ? "Edit Cover Letter" : "New Cover Letter"}
+          </h2>
+          <button
+            onClick={resetForm}
+            className="text-sm text-zinc-400 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+
+        <div className="space-y-4 rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6">
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1.5">Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Software Engineer at Google"
+              className={inputClass}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1.5">Company</label>
+              <input
+                type="text"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="Company name"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1.5">Role</label>
+              <input
+                type="text"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="Position title"
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenerate}
+              disabled={generating || !company.trim() || !role.trim()}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-sm font-medium text-white hover:from-indigo-500 hover:to-indigo-400 transition-all disabled:opacity-50"
+            >
+              {generating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {generating ? "Generating..." : "Generate Draft"}
+            </button>
+            <span className="text-xs text-zinc-600">
+              Fill in company & role, then generate
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1.5">Content</label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={14}
+              placeholder="Write or generate your cover letter..."
+              className={cn(inputClass, "resize-y min-h-[200px]")}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={resetForm}
+              className="rounded-lg border border-zinc-800 px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!title.trim() || !content.trim()}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors disabled:opacity-50"
+            >
+              {editing ? "Update" : "Save"}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div variants={fadeUp} className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-white">Cover Letters</h2>
+        <button
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          New Cover Letter
+        </button>
+      </div>
+
+      {letters.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/60 ring-1 ring-zinc-700/50">
+            <MessageSquare className="h-7 w-7 text-zinc-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">
+            No cover letters yet
+          </h3>
+          <p className="text-sm text-zinc-500 max-w-sm mb-6">
+            Create personalized cover letters for each job application. Our AI
+            can help you draft them quickly.
+          </p>
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Create Your First Cover Letter
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {letters.map((letter, i) => (
+            <motion.div
+              key={letter.id}
+              variants={scaleIn}
+              custom={i}
+              className="group relative rounded-2xl border border-zinc-800/80 bg-zinc-900/60 overflow-hidden hover:border-zinc-700/60 transition-all duration-300 hover:shadow-xl hover:shadow-black/20"
+            >
+              <div className="p-5 space-y-3">
+                <div>
+                  <h3 className="truncate text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                    {letter.title}
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {letter.company}
+                    {letter.company && letter.role ? " — " : ""}
+                    {letter.role}
+                  </p>
+                </div>
+                <p className="text-xs text-zinc-600 line-clamp-3">
+                  {letter.content}
+                </p>
+                <div className="flex items-center gap-1.5 pt-2 border-t border-zinc-800/80">
+                  <button
+                    onClick={() => handleEdit(letter)}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600/15 px-3 py-1.5 text-xs font-semibold text-indigo-400 hover:bg-indigo-600/25 transition-colors ring-1 ring-indigo-500/20"
+                  >
+                    <Edit3 className="h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(letter.content);
+                    }}
+                    className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(letter.id)}
+                    className="rounded-lg p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -631,16 +928,7 @@ export default function DashboardPage() {
             {/* COVER LETTERS TAB                                              */}
             {/* ============================================================= */}
             {activeTab === "cover-letters" && (
-              <motion.div variants={fadeUp} className="space-y-6">
-                <h2 className="text-xl font-semibold text-white">Cover Letters</h2>
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/60 ring-1 ring-zinc-700/50">
-                    <MessageSquare className="h-7 w-7 text-zinc-500" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Coming Soon</h3>
-                  <p className="text-sm text-zinc-500 max-w-sm">AI-powered cover letter generation is coming in a future update.</p>
-                </div>
-              </motion.div>
+              <CoverLettersTab />
             )}
 
             {/* ============================================================= */}
@@ -683,7 +971,42 @@ export default function DashboardPage() {
                     </button>
                   </div>
 
-                  {/* Sign out */}
+                  {/* Preferences */}
+                  <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6 space-y-4">
+                    <h3 className="font-medium text-white">Preferences</h3>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-white">Default Template</p>
+                          <p className="text-xs text-zinc-500">Template used when creating new CVs</p>
+                        </div>
+                        <select
+                          defaultValue="Modern"
+                          className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none transition-colors"
+                        >
+                          <option value="Modern">Modern</option>
+                          <option value="Classic">Classic</option>
+                          <option value="Minimal">Minimal</option>
+                          <option value="Creative">Creative</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-white">Auto-save</p>
+                          <p className="text-xs text-zinc-500">Automatically save changes while editing</p>
+                        </div>
+                        <div className="relative">
+                          <input type="checkbox" defaultChecked className="sr-only peer" id="autosave-toggle" />
+                          <label
+                            htmlFor="autosave-toggle"
+                            className="block w-10 h-6 rounded-full bg-zinc-700 peer-checked:bg-indigo-600 cursor-pointer transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Account */}
                   <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6 space-y-4">
                     <h3 className="font-medium text-white">Account</h3>
                     <div className="flex items-center justify-between">
@@ -697,6 +1020,28 @@ export default function DashboardPage() {
                       >
                         <LogOut className="h-4 w-4" />
                         Sign Out
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Danger Zone */}
+                  <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-6 space-y-4">
+                    <h3 className="font-medium text-red-400">Danger Zone</h3>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-white">Delete Account</p>
+                        <p className="text-xs text-zinc-500">Permanently delete your account and all data</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
+                            alert("Please contact support to delete your account.");
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete Account
                       </button>
                     </div>
                   </div>

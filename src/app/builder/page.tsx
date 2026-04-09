@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -33,6 +34,8 @@ import {
   FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@/lib/supabase/auth";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -722,8 +725,22 @@ const templateComponents: Record<string, React.FC<TemplateProps>> = {
 /* ------------------------------------------------------------------ */
 
 export default function BuilderPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-zinc-950" />}>
+      <BuilderInner />
+    </Suspense>
+  );
+}
+
+function BuilderInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const cvIdParam = searchParams.get("id");
+  const { user } = useUser();
+
   /* ---- Initial load from localStorage ---- */
   const [loaded, setLoaded] = useState(false);
+  const [cvId, setCvId] = useState<string | null>(cvIdParam);
 
   /* ---- CV title ---- */
   const [cvTitle, setCvTitle] = useState("Untitled CV");
@@ -805,28 +822,57 @@ export default function BuilderPage() {
   const [exporting, setExporting] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  /* ---- Load from localStorage on mount ---- */
-  useEffect(() => {
-    const saved = loadFromStorage();
-    if (saved) {
-      if (saved.cvTitle) setCvTitle(saved.cvTitle);
-      if (saved.fullName) setFullName(saved.fullName);
-      if (saved.jobTitle) setJobTitle(saved.jobTitle);
-      if (saved.email) setEmail(saved.email);
-      if (saved.phone) setPhone(saved.phone);
-      if (saved.location) setLocation(saved.location);
-      if (saved.linkedin) setLinkedin(saved.linkedin);
-      if (saved.summary) setSummary(saved.summary);
-      if (saved.experiences?.length) setExperiences(saved.experiences);
-      if (saved.educations?.length) setEducations(saved.educations);
-      if (saved.skills?.length) setSkills(saved.skills);
-      if (saved.languages?.length) setLanguages(saved.languages);
-      if (saved.certifications?.length) setCertifications(saved.certifications);
-      if (saved.customSections?.length) setCustomSections(saved.customSections);
-      if (saved.selectedTemplate) setSelectedTemplate(saved.selectedTemplate);
-    }
-    setLoaded(true);
+  /* ---- Helper: apply saved data to state ---- */
+  const applySavedData = useCallback((saved: Partial<CvData>) => {
+    if (saved.cvTitle) setCvTitle(saved.cvTitle);
+    if (saved.fullName) setFullName(saved.fullName);
+    if (saved.jobTitle) setJobTitle(saved.jobTitle);
+    if (saved.email) setEmail(saved.email);
+    if (saved.phone) setPhone(saved.phone);
+    if (saved.location) setLocation(saved.location);
+    if (saved.linkedin) setLinkedin(saved.linkedin);
+    if (saved.summary) setSummary(saved.summary);
+    if (saved.experiences?.length) setExperiences(saved.experiences);
+    if (saved.educations?.length) setEducations(saved.educations);
+    if (saved.skills?.length) setSkills(saved.skills);
+    if (saved.languages?.length) setLanguages(saved.languages);
+    if (saved.certifications?.length) setCertifications(saved.certifications);
+    if (saved.customSections?.length) setCustomSections(saved.customSections);
+    if (saved.selectedTemplate) setSelectedTemplate(saved.selectedTemplate);
   }, []);
+
+  /* ---- Load from Supabase (if ?id=) or localStorage on mount ---- */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      if (cvIdParam && user) {
+        // Load from Supabase
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("cvs")
+          .select("*")
+          .eq("id", cvIdParam)
+          .single();
+        if (!cancelled && data) {
+          setCvId(data.id);
+          setCvTitle(data.title);
+          setSelectedTemplate(data.template);
+          if (data.data && typeof data.data === "object") {
+            applySavedData(data.data as Partial<CvData>);
+          }
+        }
+      } else {
+        // Load from localStorage for new CVs
+        const saved = loadFromStorage();
+        if (saved) applySavedData(saved);
+      }
+      if (!cancelled) setLoaded(true);
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [cvIdParam, user, applySavedData]);
 
   /* ---- Build CvData object ---- */
   const cvData: CvData = useMemo(
@@ -850,7 +896,7 @@ export default function BuilderPage() {
     [cvTitle, fullName, jobTitle, email, phone, location, linkedin, summary, experiences, educations, skills, languages, certifications, customSections, selectedTemplate]
   );
 
-  /* ---- Auto-save to localStorage ---- */
+  /* ---- Auto-save to localStorage + Supabase ---- */
   const triggerAutoSave = useCallback(() => {
     setSaveStatus("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -859,12 +905,48 @@ export default function BuilderPage() {
     }, 600);
   }, []);
 
-  // Save to localStorage whenever cvData changes (after initial load)
+  const supabaseSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!loaded) return;
     saveToStorage(cvData);
     triggerAutoSave();
-  }, [cvData, loaded, triggerAutoSave]);
+
+    // Debounced Supabase save
+    if (!user) return;
+    if (supabaseSaveTimer.current) clearTimeout(supabaseSaveTimer.current);
+    supabaseSaveTimer.current = setTimeout(async () => {
+      const supabase = createClient();
+      if (cvId) {
+        // Update existing CV
+        await supabase
+          .from("cvs")
+          .update({
+            title: cvData.cvTitle,
+            template: cvData.selectedTemplate,
+            data: cvData,
+          })
+          .eq("id", cvId);
+      } else {
+        // Create new CV
+        const { data } = await supabase
+          .from("cvs")
+          .insert({
+            user_id: user.id,
+            title: cvData.cvTitle,
+            template: cvData.selectedTemplate,
+            data: cvData,
+          })
+          .select()
+          .single();
+        if (data) {
+          setCvId(data.id);
+          // Update URL without full navigation
+          window.history.replaceState(null, "", `/builder?id=${data.id}`);
+        }
+      }
+    }, 2000);
+  }, [cvData, loaded, triggerAutoSave, user, cvId]);
 
   const simulateAi = useCallback(
     (key: string, cb: () => void, delay = 1500) => {
